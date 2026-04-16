@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poker Live Timer</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; }
+        .timer { font-size: 8rem; font-weight: bold; color: #e74c3c; }
+        .blinds { font-size: 4rem; color: #f1c40f; }
+        .stats { display: flex; justify-content: space-around; background: #2c3e50; padding: 20px; border-radius: 15px; }
+        .ranking-table { width: 90%; margin: 20px auto; border-collapse: collapse; }
+        .ranking-table th, .ranking-table td { border-bottom: 1px solid #444; padding: 15px; font-size: 1.5rem; }
+        .eliminated { color: #666; text-decoration: line-through; }
+        .admin-panel, .player-panel { margin-top: 20px; border-top: 2px solid #444; padding: 20px; }
+        button { padding: 15px 25px; font-size: 1.2rem; cursor: pointer; background: #27ae60; color: white; border: none; border-radius: 5px; margin: 5px; }
+        input { padding: 10px; font-size: 1.2rem; width: 100px; }
+    </style>
+</head>
+<body>
+
+    <div id="display-pc">
+        <div class="timer" id="timer-display">20:00</div>
+        <div class="blinds" id="blinds-display">LIVELLO 1: 25/50</div>
+        
+        <div class="stats">
+            <div>PREMI<br><span id="total-pot">0</span>€<br>
+                <small>1°: <span id="p1">0</span>€ | 2°: <span id="p2">0</span>€ | 3°: <span id="p3">0</span>€</small>
+            </div>
+            <div>STATUS<br><span id="status-text">WAITING</span></div>
+        </div>
+
+        <table class="ranking-table" id="ranking-table">
+            <thead><tr><th>Pos</th><th>Giocatore</th><th>Chips</th></tr></thead>
+            <tbody id="ranking-body"></tbody>
+        </table>
+    </div>
+
+    <div id="controls">
+        <div class="admin-panel">
+            <h3>Controlli Admin</h3>
+            <button onclick="sendAction('start')">START</button>
+            <button onclick="sendAction('pause')" style="background:#c0392b">PAUSA</button>
+            <button onclick="sendAction('skip')">SALTA LIVELLO</button>
+        </div>
+        
+        <div class="player-panel">
+            <h3>Il Mio Stack</h3>
+            <input type="text" id="player-name" placeholder="Tuo Nome">
+            <input type="number" id="player-chips" placeholder="Chips">
+            <button onclick="updateMe()">AGGIORNA</button>
+            <br>
+            <button onclick="sendExtra('rebuy')" style="background:#8e44ad">REBUY (+5€)</button>
+            <button onclick="sendExtra('addon')" style="background:#2980b9">ADDON (+5€)</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myId = Math.random().toString(36).substr(2, 9);
+
+        function formatTime(s) {
+            let m = Math.floor(s / 60);
+            let sec = s % 60;
+            return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+        }
+
+        socket.on('tick', (state) => {
+            document.getElementById('timer-display').innerText = formatTime(state.timer);
+        });
+
+        socket.on('updateState', (state) => {
+            document.getElementById('timer-display').innerText = formatTime(state.timer);
+            document.getElementById('blinds-display').innerText = state.isPause ? "PAUSA SMOKE" : `LIVELLO ${state.currentLevel}: ${getBlinds(state.currentLevel)}`;
+            
+            // Calcolo Premi
+            let totalPlayers = state.players.length;
+            let pot = (totalPlayers + state.rebuys + state.addons) * state.buyIn;
+            document.getElementById('total-pot').innerText = pot;
+            document.getElementById('p1').innerText = (pot * 0.6).toFixed(0);
+            document.getElementById('p2').innerText = (pot * 0.3).toFixed(0);
+            document.getElementById('p3').innerText = (pot * 0.1).toFixed(0);
+
+            // Classifica
+            let html = "";
+            state.players.forEach((p, i) => {
+                let statusClass = p.chips <= 0 ? 'class="eliminated"' : '';
+                html += `<tr ${statusClass}><td>${i+1}</td><td>${p.name}</td><td>${p.chips}</td></tr>`;
+            });
+            document.getElementById('ranking-body').innerHTML = html;
+        });
+
+        function updateMe() {
+            const name = document.getElementById('player-name').value;
+            const chips = parseInt(document.getElementById('player-chips').value);
+            if(name) socket.emit('updatePlayer', { id: myId, name, chips });
+        }
+
+        function sendAction(a) { socket.emit('adminControl', a); }
+        function sendExtra(t) { socket.emit('addExtra', t); }
+        function getBlinds(l) { 
+            const b = ["25/50", "50/100", "75/150", "100/200", "150/300", "PAUSA", "200/400", "300/600", "400/800", "600/1200"];
+            return b[l-1] || "2000/4000";
+        }
+    </script>
+</body>
+</html>
