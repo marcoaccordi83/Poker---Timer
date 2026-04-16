@@ -39,11 +39,14 @@
 
     <div id="controls">
         <div class="admin-panel">
-            <h3>Controlli Admin</h3>
-            <button onclick="sendAction('start')">START</button>
-            <button onclick="sendAction('pause')" style="background:#c0392b">PAUSA</button>
-            <button onclick="sendAction('skip')">SALTA LIVELLO</button>
-        </div>
+    <h3>Controlli Admin</h3>
+    <button onclick="sendAction('start')">START</button>
+    <button onclick="sendAction('pause')" style="background:#c0392b">PAUSA</button>
+    <button onclick="sendAction('skip')">PROSSIMO LV</button>
+    
+    <button onclick="if(confirm('Riavviare il livello?')) sendAction('resetLevel')" style="background:#f39c12">RESET LV</button>
+    <button onclick="if(confirm('RESET TOTALE? Cancellerà tutto!')) sendAction('resetAll')" style="background:#7f8c8d">RESET TORNEO</button>
+</div>
         
         <div class="player-panel">
             <h3>Il Mio Stack</h3>
