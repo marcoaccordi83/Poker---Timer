@@ -55,11 +55,35 @@ function nextLevel() {
 io.on('connection', (socket) => {
     socket.emit('updateState', gameState);
 
-    socket.on('adminControl', (action) => {
-        if (action === 'start') gameState.isRunning = true;
-        if (action === 'pause') gameState.isRunning = false;
-        if (action === 'skip') nextLevel();
-        io.emit('updateState', gameState);
+    // Cerca la parte socket.on('adminControl'...) e sostituisci con questa:
+socket.on('adminControl', (action) => {
+    if (action === 'start') gameState.isRunning = true;
+    if (action === 'pause') gameState.isRunning = false;
+    if (action === 'skip') nextLevel();
+    
+    // NUOVO: Riavvia il livello attuale
+    if (action === 'resetLevel') {
+        gameState.timer = (gameState.currentLevel >= 8) ? 900 : 1200;
+        if (gameState.currentLevel === 6) gameState.timer = 600; // Reset della pausa
+        gameState.isRunning = false;
+    }
+
+    // NUOVO: Riavvia l'intero torneo
+    if (action === 'resetAll') {
+        gameState = {
+            timer: 1200,
+            isRunning: false,
+            currentLevel: 1,
+            players: gameState.players.map(p => ({...p, chips: 10000})), // Esempio: resetta chip a 10k
+            rebuys: 0,
+            addons: 0,
+            buyIn: 5,
+            isPause: false
+        };
+    }
+    
+    io.emit('updateState', gameState);
+});
     });
 
     socket.on('updatePlayer', (updatedPlayer) => {
