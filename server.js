@@ -10,27 +10,28 @@ const io = new Server(server);
 app.use(express.static('public'));
 
 let gameState = {
-    timer: 1200, // 20 min in secondi
+    timer: 1200, // 20 min iniziali
     isRunning: false,
     currentLevel: 1,
     players: [],
     rebuys: 0,
     addons: 0,
     buyIn: 5,
-    isPause: false
+    isPause: false,
+    // Impostazioni Premi
+    numPremiati: 3,
+    percentuali: [60, 30, 10]
 };
 
-// Funzione per calcolare i bui in base al livello
 function getBlinds(level) {
     const blinds = [
-        "25/50", "50/100", "75/150", "100/200", "150/300", // Livelli 1-5
-        "PAUSA", // Livello 6 (Pausa)
-        "200/400", "300/600", "400/800", "600/1200", "800/1600" // Livelli successivi
+        "25/50", "50/100", "75/150", "100/200", "150/300", // 1-5
+        "PAUSA", // 6
+        "200/400", "300/600", "400/800", "600/1200", "1000/2000", "1500/3000"
     ];
-    return blinds[level - 1] || "2000/4000";
+    return blinds[level - 1] || "ALTI";
 }
 
-// Logica del Timer
 setInterval(() => {
     if (gameState.isRunning && gameState.timer > 0) {
         gameState.timer--;
@@ -42,10 +43,11 @@ setInterval(() => {
 
 function nextLevel() {
     gameState.currentLevel++;
-    if (gameState.currentLevel === 6) { // Pausa dopo il livello 5
-        gameState.timer = 600; // 10 min
+    if (gameState.currentLevel === 6) { 
+        gameState.timer = 600; // 10 min pausa
         gameState.isPause = true;
     } else {
+        // 20 min fino al 7, poi 15 min dall'8 in poi
         gameState.timer = gameState.currentLevel >= 8 ? 900 : 1200;
         gameState.isPause = false;
     }
@@ -55,51 +57,45 @@ function nextLevel() {
 io.on('connection', (socket) => {
     socket.emit('updateState', gameState);
 
-    // Cerca la parte socket.on('adminControl'...) e sostituisci con questa:
-socket.on('adminControl', (action) => {
-    if (action === 'start') gameState.isRunning = true;
-    if (action === 'pause') gameState.isRunning = false;
-    if (action === 'skip') nextLevel();
-    
-    // NUOVO: Riavvia il livello attuale
-    if (action === 'resetLevel') {
-        gameState.timer = (gameState.currentLevel >= 8) ? 900 : 1200;
-        if (gameState.currentLevel === 6) gameState.timer = 600; // Reset della pausa
-        gameState.isRunning = false;
-    }
+    socket.on('adminControl', (action) => {
+        if (action === 'start') gameState.isRunning = true;
+        if (action === 'pause') gameState.isRunning = false;
+        if (action === 'skip') nextLevel();
+        if (action === 'resetLevel') {
+            gameState.timer = (gameState.currentLevel === 6) ? 600 : (gameState.currentLevel >= 8 ? 900 : 1200);
+            gameState.isRunning = false;
+        }
+        if (action === 'resetAll') {
+            gameState.currentLevel = 1;
+            gameState.timer = 1200;
+            gameState.isRunning = false;
+            gameState.rebuys = 0;
+            gameState.addons = 0;
+            gameState.isPause = false;
+            gameState.players = gameState.players.map(p => ({...p, chips: 10000}));
+        }
+        io.emit('updateState', gameState);
+    });
 
-    // NUOVO: Riavvia l'intero torneo
-    if (action === 'resetAll') {
-        gameState = {
-            timer: 1200,
-            isRunning: false,
-            currentLevel: 1,
-            players: gameState.players.map(p => ({...p, chips: 10000})), // Esempio: resetta chip a 10k
-            rebuys: 0,
-            addons: 0,
-            buyIn: 5,
-            isPause: false
-        };
-    }
-    
-    io.emit('updateState', gameState);
-});
+    socket.on('updateRewards', (data) => {
+        gameState.numPremiati = data.num;
+        gameState.percentuali = data.per;
+        io.emit('updateState', gameState);
     });
 
     socket.on('updatePlayer', (updatedPlayer) => {
         const idx = gameState.players.findIndex(p => p.id === updatedPlayer.id);
         if (idx !== -1) {
             gameState.players[idx] = updatedPlayer;
-            // Ordinamento automatico per chip count
-            gameState.players.sort((a, b) => b.chips - a.chips);
         } else {
             gameState.players.push(updatedPlayer);
         }
+        gameState.players.sort((a, b) => b.chips - a.chips);
         io.emit('updateState', gameState);
     });
 
     socket.on('addExtra', (type) => {
-        if (gameState.currentLevel <= 6) { // Solo fino alla fine della pausa
+        if (gameState.currentLevel <= 6) {
             if (type === 'rebuy') gameState.rebuys++;
             if (type === 'addon') gameState.addons++;
             io.emit('updateState', gameState);
@@ -108,4 +104,4 @@ socket.on('adminControl', (action) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server attivo su porta ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
