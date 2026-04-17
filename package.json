@@ -1,7 +1,7 @@
 {
   "name": "poker-timer",
   "version": "1.0.0",
-  "description": "Poker Timer App",
+  "description": "Poker Timer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,6 @@
     "socket.io": "^4.7.2"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": "18.x"
   }
 }
