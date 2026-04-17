@@ -1,175 +1,112 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Poker Pro Timer</title>
-    <script src="/socket.io/socket.io.js"></script>
-    <style>
-        body { background: #121212; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; }
-        .timer { font-size: clamp(5rem, 15vw, 10rem); font-weight: bold; color: #e74c3c; margin: 0; }
-        .blinds { font-size: clamp(2rem, 5vw, 4rem); color: #f1c40f; margin-bottom: 20px; }
-        .stats-bar { display: flex; flex-wrap: wrap; justify-content: space-around; background: #1e1e1e; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 30px; }
-        .stat-item { text-align: center; min-width: 150px; }
-        .stat-label { font-size: 0.9rem; color: #888; text-transform: uppercase; }
-        .stat-value { font-size: 1.5rem; font-weight: bold; color: #2ecc71; }
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+// Serve i file statici dalla cartella 'public'
+app.use(express.static('public'));
+
+let gameState = {
+    timer: 1200, // 20 min in secondi
+    isRunning: false,
+    currentLevel: 1,
+    players: [],
+    rebuys: 0,
+    addons: 0,
+    buyIn: 5,
+    isPause: false,
+    numPremiati: 3,
+    percentuali: [60, 30, 10]
+};
+
+function getBlinds(level) {
+    const blinds = [
+        "25/50", "50/100", "75/150", "100/200", "150/300", // Livelli 1-5
+        "PAUSA", // Livello 6
+        "200/400", "300/600", "400/800", "600/1200", "1000/2000", "1500/3000"
+    ];
+    return blinds[level - 1] || "ALTI";
+}
+
+// Logica del Timer
+setInterval(() => {
+    if (gameState.isRunning && gameState.timer > 0) {
+        gameState.timer--;
+        io.emit('tick', gameState);
+    } else if (gameState.timer === 0 && gameState.isRunning) {
+        nextLevel();
+    }
+}, 1000);
+
+function nextLevel() {
+    gameState.currentLevel++;
+    if (gameState.currentLevel === 6) { 
+        gameState.timer = 600; // 10 min pausa
+        gameState.isPause = true;
+    } else {
+        // 20 min fino al 7, poi 15 min dall'8 in poi
+        gameState.timer = gameState.currentLevel >= 8 ? 900 : 1200;
+        gameState.isPause = false;
+    }
+    io.emit('updateState', gameState);
+}
+
+io.on('connection', (socket) => {
+    socket.emit('updateState', gameState);
+
+    socket.on('adminControl', (action) => {
+        if (action === 'start') gameState.isRunning = true;
+        if (action === 'pause') gameState.isRunning = false;
+        if (action === 'skip') nextLevel();
         
-        .ranking-table { width: 100%; max-width: 900px; margin: 0 auto; border-collapse: collapse; background: #1e1e1e; border-radius: 10px; overflow: hidden; }
-        .ranking-table th { background: #333; padding: 15px; color: #888; }
-        .ranking-table td { padding: 15px; border-bottom: 1px solid #222; font-size: 1.4rem; text-align: center; }
-        .eliminated { color: #555 !important; text-decoration: line-through; opacity: 0.6; }
-        
-        #controls { max-width: 600px; margin: 30px auto; }
-        .admin-panel { background: #2c3e50; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 2px solid #34495e; }
-        .player-panel { background: #1e1e1e; padding: 20px; border-radius: 15px; border: 1px solid #333; }
-        
-        button { padding: 12px 20px; font-size: 1rem; cursor: pointer; border: none; border-radius: 8px; margin: 5px; color: white; font-weight: bold; }
-        .btn-start { background: #27ae60; }
-        .btn-pause { background: #c0392b; }
-        .btn-action { background: #2980b9; }
-        .btn-save { background: #e67e22; }
-        input { padding: 10px; border-radius: 5px; border: 1px solid #444; background: #333; color: white; margin: 5px; }
-    </style>
-</head>
-<body>
-
-    <div id="board">
-        <p id="status-text" style="font-weight:bold; color:#888;">ATTESA INIZIO</p>
-        <h1 class="timer" id="timer-display">20:00</h1>
-        <div class="blinds" id="blinds-display">LIVELLO 1: 25/50</div>
-
-        <div class="stats-bar">
-            <div class="stat-item">
-                <div class="stat-label">Montepremi</div>
-                <div class="stat-value"><span id="total-pot">0</span>€</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label">Ripartizione Premi</div>
-                <div id="reward-details" style="color:#2ecc71; font-weight:bold; margin-top:5px;"></div>
-            </div>
-        </div>
-
-        <table class="ranking-table">
-            <thead>
-                <tr><th>Pos</th><th>Giocatore</th><th>Stack</th></tr>
-            </thead>
-            <tbody id="ranking-body"></tbody>
-        </table>
-    </div>
-
-    <div id="controls">
-        <div class="admin-panel" id="admin-section" style="display: none;">
-            <h3>Pannello di Controllo Admin</h3>
-            <button class="btn-start" onclick="sendAction('start')">START</button>
-            <button class="btn-pause" onclick="sendAction('pause')">PAUSA</button>
-            <button class="btn-action" onclick="sendAction('skip')">PROSSIMO LV</button>
-            <button class="btn-action" style="background:#f39c12" onclick="if(confirm('Resettare livello?')) sendAction('resetLevel')">RESET LV</button>
-            <button class="btn-action" style="background:#7f8c8d" onclick="if(confirm('RESET TORNEO?')) sendAction('resetAll')">RESET TOTALE</button>
-            
-            <div style="margin-top:20px; padding-top:15px; border-top:1px solid #555;">
-                <h4>Configurazione Premi</h4>
-                Num. Premiati: <input type="number" id="input-num-premi" value="3" style="width:50px;"><br>
-                Percentuali (es: 60,30,10): <br>
-                <input type="text" id="input-percentuali" value="60,30,10" style="width:80%;"><br>
-                <button class="btn-save" onclick="saveRewards()">APPLICA PREMI</button>
-            </div>
-        </div>
-
-        <div class="player-panel">
-            <h3>Il Mio Stack</h3>
-            <input type="text" id="player-name" placeholder="Tuo Nome">
-            <input type="number" id="player-chips" placeholder="Chip Count">
-            <button class="btn-start" onclick="updateMe()">AGGIORNA</button>
-            <div style="margin-top:10px;">
-                <button class="btn-action" style="background:#8e44ad" onclick="sendExtra('rebuy')">REBUY (+5€)</button>
-                <button class="btn-action" style="background:#2980b9" onclick="sendExtra('addon')">ADDON (+5€)</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const socket = io();
-        let myId = localStorage.getItem('poker_id') || Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('poker_id', myId);
-
-        // Controllo Admin via URL
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('admin') === 'poker123') {
-            document.getElementById('admin-section').style.display = 'block';
+        if (action === 'resetLevel') {
+            gameState.timer = (gameState.currentLevel === 6) ? 600 : (gameState.currentLevel >= 8 ? 900 : 1200);
+            gameState.isRunning = false;
         }
 
-        function formatTime(s) {
-            let m = Math.floor(s / 60);
-            let sec = s % 60;
-            return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+        if (action === 'resetAll') {
+            gameState.currentLevel = 1;
+            gameState.timer = 1200;
+            gameState.isRunning = false;
+            gameState.rebuys = 0;
+            gameState.addons = 0;
+            gameState.isPause = false;
+            gameState.players = gameState.players.map(p => ({...p, chips: 10000}));
         }
+        io.emit('updateState', gameState);
+    });
 
-        socket.on('tick', (state) => {
-            document.getElementById('timer-display').innerText = formatTime(state.timer);
-        });
+    socket.on('updateRewards', (data) => {
+        gameState.numPremiati = data.num;
+        gameState.percentuali = data.per;
+        io.emit('updateState', gameState);
+    });
 
-        socket.on('updateState', (state) => {
-            document.getElementById('timer-display').innerText = formatTime(state.timer);
-            document.getElementById('blinds-display').innerText = state.isPause ? "PAUSA" : `LIVELLO ${state.currentLevel}: ${getBlinds(state.currentLevel)}`;
-            document.getElementById('status-text').innerText = state.isRunning ? "TORNEO IN CORSO" : "IN PAUSA";
-            document.getElementById('status-text').style.color = state.isRunning ? "#2ecc71" : "#e74c3c";
-
-            // Premi
-            let pot = (state.players.length + state.rebuys + state.addons) * state.buyIn;
-            document.getElementById('total-pot').innerText = pot;
-            
-            let rewardHtml = "";
-            state.percentuali.forEach((pct, i) => {
-                let quota = Math.round((pot * pct) / 100);
-                rewardHtml += `${i+1}°: ${quota}€ | `;
-            });
-            document.getElementById('reward-details').innerText = rewardHtml;
-
-            // Classifica
-            let html = "";
-            state.players.forEach((p, i) => {
-                let isEliminated = p.chips <= 0;
-                let statusClass = isEliminated ? 'class="eliminated"' : '';
-                let rankDisplay = (i + 1).toString();
-
-                if (!isEliminated) {
-                    if (i === 0) rankDisplay = "🥇";
-                    else if (i === 1) rankDisplay = "🥈";
-                    else if (i === 2) rankDisplay = "🥉";
-                    else if (i === (state.numPremiati - 1)) rankDisplay = "🫧"; // Bolla
-                }
-
-                let rowStyle = (!isEliminated && i === (state.numPremiati - 1)) ? 'style="color:#3498db"' : '';
-
-                html += `<tr ${statusClass}>
-                    <td>${rankDisplay}</td>
-                    <td ${rowStyle}>${p.name || 'Anonimo'}</td>
-                    <td>${p.chips}</td>
-                </tr>`;
-            });
-            document.getElementById('ranking-body').innerHTML = html;
-        });
-
-        function updateMe() {
-            const name = document.getElementById('player-name').value;
-            const chips = parseInt(document.getElementById('player-chips').value) || 0;
-            if (name) socket.emit('updatePlayer', { id: myId, name, chips });
+    socket.on('updatePlayer', (updatedPlayer) => {
+        const idx = gameState.players.findIndex(p => p.id === updatedPlayer.id);
+        if (idx !== -1) {
+            gameState.players[idx] = updatedPlayer;
+        } else {
+            gameState.players.push(updatedPlayer);
         }
+        gameState.players.sort((a, b) => b.chips - a.chips);
+        io.emit('updateState', gameState);
+    });
 
-        function saveRewards() {
-            const num = parseInt(document.getElementById('input-num-premi').value);
-            const per = document.getElementById('input-percentuali').value.split(',').map(n => parseInt(n.trim()));
-            if (per.reduce((a, b) => a + b, 0) !== 100) return alert("Somma % deve essere 100!");
-            socket.emit('updateRewards', { num, per });
+    socket.on('addExtra', (type) => {
+        if (gameState.currentLevel <= 6) {
+            if (type === 'rebuy') gameState.rebuys++;
+            if (type === 'addon') gameState.addons++;
+            io.emit('updateState', gameState);
         }
+    });
+});
 
-        function sendAction(a) { socket.emit('adminControl', a); }
-        function sendExtra(t) { socket.emit('addExtra', t); }
-        
-        function getBlinds(l) {
-            const b = ["25/50", "50/100", "75/150", "100/200", "150/300", "PAUSA", "200/400", "300/600", "400/800", "600/1200", "1000/2000"];
-            return b[l-1] || "ALTI";
-        }
-    </script>
-</body>
-</html>
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server poker attivo sulla porta ${PORT}`);
+});
