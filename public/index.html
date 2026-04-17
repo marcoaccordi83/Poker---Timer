@@ -8,9 +8,8 @@
     <style>
         body { background: #121212; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; }
         
-        /* Sicurezza Admin: nascosto di default */
-        #admin-section { display: none !important; }
-        .show-admin { display: block !important; }
+        /* Pannello Admin: nascosto di default */
+        #admin-section { display: none; background: #2c3e50; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 2px solid #34495e; }
 
         .timer { font-size: clamp(5rem, 15vw, 10rem); font-weight: bold; color: #e74c3c; margin: 0; text-align: center; }
         .blinds { font-size: clamp(2rem, 5vw, 4rem); color: #f1c40f; margin-bottom: 20px; text-align: center; }
@@ -26,7 +25,6 @@
         .eliminated { color: #555 !important; text-decoration: line-through; opacity: 0.6; }
         
         #controls { max-width: 600px; margin: 30px auto; }
-        .admin-panel { background: #2c3e50; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 2px solid #34495e; }
         .player-panel { background: #1e1e1e; padding: 20px; border-radius: 15px; border: 1px solid #333; }
         
         button { padding: 12px 20px; font-size: 1rem; cursor: pointer; border: none; border-radius: 8px; margin: 5px; color: white; font-weight: bold; }
@@ -64,7 +62,7 @@
     </div>
 
     <div id="controls">
-        <div class="admin-panel" id="admin-section">
+        <div id="admin-section">
             <h3>Pannello Admin</h3>
             <button class="btn-start" onclick="sendAction('start')">START</button>
             <button class="btn-pause" onclick="sendAction('pause')">PAUSA</button>
@@ -98,10 +96,12 @@
         let myId = localStorage.getItem('poker_id') || Math.random().toString(36).substr(2, 9);
         localStorage.setItem('poker_id', myId);
 
-        // LOGICA SICUREZZA ADMIN
+        // LOGICA MOSTRA/NASCONDI ADMIN
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('admin') === 'poker123') {
-            document.getElementById('admin-section').classList.add('show-admin');
+            document.getElementById('admin-section').style.display = 'block';
+        } else {
+            document.getElementById('admin-section').style.display = 'none';
         }
 
         function formatTime(s) {
